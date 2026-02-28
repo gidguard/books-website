@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Book Selection</title>
+    <style>
+        :root{
+            --bg:#fff; --card:#dae2fa; --accent:#2b7cff; --muted:#666;
+        }
+        body{font-family:Inter,system-ui,Segoe UI,Arial; margin:0; background:var(--bg); color:#111}
+        .container{max-width:960px;margin:32px auto;padding:16px}
+        header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
+        h1{font-size:1.25rem;margin:0}
+        .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
+        .card{background:var(--card);border-radius:8px;padding:12px;box-shadow:0 1px 3px rgba(0,0,0,0.06)}
+        table{width:100%;border-collapse:collapse}
+        th,td{padding:8px;text-align:left;border-bottom:1px solid #eee;font-size:0.95rem}
+        .controls{display:flex;gap:8px;align-items:center;margin-top:12px}
+        input[type="text"]{padding:8px;border-radius:6px;border:1px solid #ddd;flex:1}
+        button{background:var(--accent);color:#fff;border:none;padding:8px 12px;border-radius:6px;cursor:pointer}
+        button:disabled{opacity:0.6;cursor:not-allowed}
+        @media (max-width:480px){
+            th,td{font-size:0.85rem}
+            header{flex-direction:column;align-items:flex-start;gap:8px}
+        }
+    </style>
+</head>
+<body>
+    <div style="max-width:960px;margin:32px auto 0 auto;padding:16px;background:var(--card);border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,0.06);font-size:1rem;">
+        <strong>Hej!</strong><br>
+        Såhär väljer du vilka böcker du vill ha:<br>
+        <ol style="margin-top:8px;margin-bottom:8px;">
+            <li>Kryssa för de böcker som du vill ha.</li>
+            <li>Fyll i ditt discord-användarnamn så att jag kan kontakta dig.</li>
+            <li>Tack för visat intresse!</li>
+        </ol>
+        <br>
+        När du valt bok så är den reserverad till dig. Då kan ingen annan välja den.
+        Om du ångrar ditt val så kan du kontakta @gidguard på Discord. Annars kontaktar 
+        jag dig gällande hur jag kan skicka böckerna till dig innan 20de Mars.
+        <br>
+        <br>
+        Tips: Du kan endast reservera böcker som inte redan är reserverade, men om du
+        redan valt böcker och reserverat de så kan du fortfarande välja fler!
+        Finns böckerna kvar i listan så kan du fortfarande välja de.
+        <br>
+    </div>
+
+    <div class="container">
+        <header>
+            <h1>Välj Böcker</h1>
+            <small style="color:var(--muted)">Välj böcker och bekräfta med ditt användarnamn</small>
+        </header>
+
+        <div class="card">
+            <table id="books-table" aria-label="Books list">
+                <thead>
+                    <tr>
+                        <th style="width:36px"></th>
+                        <th>Titel</th>
+                        <th>Författare</th>
+                        <th>Språk</th>
+                        <th>Genre</th>
+                        <th>Format</th>
+                        <th>Skick</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <!-- Rows will be populated dynamically from Google Sheet CSV -->
+                </tbody>
+            </table>
+
+            <div class="controls">
+                <input id="username" type="text" placeholder="Ditt användarnamn" />
+                <button id="confirm">Bekräfta val</button>
+            </div>
+
+            <p id="status" style="color:var(--muted);margin-top:8px;font-size:0.9rem"></p>
+        </div>
+    </div>
+
+
+    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+    <script>
+        // Fetch and display books from Google Sheet CSV
+        const CSV_URL = 'https://docs.google.com/spreadsheets/d/1jzcokGzuEnFa1ez-xAJ_vCKkjb1--swzSeqKIF8f7Ps/export?format=csv';
+        const booksTable = document.getElementById('books-table').querySelector('tbody');
+        const confirmBtn = document.getElementById('confirm');
+        const statusEl = document.getElementById('status');
+
+        // Robust CSV parser using PapaParse
+        function parseCSV(text) {
+            const results = Papa.parse(text, { header: true, skipEmptyLines: true });
+            return results.data.map(row => ({
+                id: row[Object.keys(row)[0]], // First column as ID
+                title: row[Object.keys(row)[1]],
+                author: row[Object.keys(row)[2]],
+                language: row[Object.keys(row)[3]],
+                genre: row[Object.keys(row)[4]],
+                format: row[Object.keys(row)[5]],
+                condition: row[Object.keys(row)[6]]
+            }));
+        }
+
+        // Load reserved book IDs first, then books
+        let reservedIds = [];
+        Promise.all([
+            fetch('http://localhost:5000/reserved_ids').then(resp => resp.json()).catch(() => []),
+            fetch(CSV_URL).then(resp => resp.text()).catch(() => null)
+        ]).then(([ids, csv]) => {
+            reservedIds = ids.map(rid => rid.trim());
+            if (!csv) {
+                booksTable.innerHTML = '<tr><td colspan="6">Misslyckades med att ladda böcker.  </td></tr>';
+                return;
+            }
+            const books = parseCSV(csv);
+            console.log('Reserved IDs:', reservedIds);
+            console.log('Book IDs:', books.map(b => b.id));
+            booksTable.innerHTML = books
+                .filter(book => !reservedIds.includes(String(book.id).trim()))
+                .map(book => `
+                    <tr data-id="${book.id}">
+                        <td><input type="checkbox" class="pick" /></td>
+                        <td>${book.title}</td>
+                        <td>${book.author}</td>
+                        <td>${book.language}</td>
+                        <td>${book.genre}</td>
+                        <td>${book.format}</td>
+                        <td>${book.condition}</td>
+                    </tr>
+                `).join('');
+        });
+
+        confirmBtn.addEventListener('click', () => {
+            const username = document.getElementById('username').value.trim();
+            const checked = Array.from(document.querySelectorAll('.pick'))
+                .filter(cb => cb.checked)
+                .map(cb => {
+                    const row = cb.closest('tr');
+                    return {
+                        id: row.dataset.id,
+                        title: row.cells[1].textContent.trim(),
+                        author: row.cells[2].textContent.trim()
+                    };
+                });
+
+            if (!username) {
+                statusEl.textContent = 'Vänligen ange ditt Discord-användarnamn.';
+                return;
+            }
+            if (checked.length === 0) {
+                statusEl.textContent = 'Vänligen välj minst en bok.';
+                return;
+            }
+
+            // Send reservation to backend
+            fetch('http://localhost:5000/reserve', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    username: username,
+                    books: checked,
+                    timestamp: new Date().toISOString()
+                })
+            })
+            .then(resp => resp.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    checked.forEach(b => {
+                        const row = document.querySelector(`tr[data-id="${b.id}"]`);
+                        if (row) {
+                            row.style.opacity = '0.6';
+                            row.querySelector('.pick').disabled = true;
+                        }
+                    });
+                    statusEl.textContent = `Bokning av ${checked.length} bok(er) för "${username}" lyckades.`;
+                    document.getElementById('username').value = '';
+                } else {
+                    statusEl.textContent = 'Fel: ' + (data.error || 'Okänt fel');
+                }
+            })
+            .catch(() => {
+                statusEl.textContent = 'Failed to save reservation.';
+            });
+        });
+    </script>
+</body>
+</html>
